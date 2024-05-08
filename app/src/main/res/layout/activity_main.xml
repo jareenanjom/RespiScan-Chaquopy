@@ -39,7 +39,8 @@
         android:layout_marginStart="8dp"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="8dp"
-        android:text="TextView"
+        android:text="Predicted Disease: "
+        android:gravity="center"
         app:layout_constraintBottom_toTopOf="@+id/textViewSpec"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -54,10 +55,116 @@
         android:layout_marginTop="16dp"
         android:layout_marginEnd="8dp"
         android:layout_marginBottom="16dp"
-        android:text="TextView"
-        app:layout_constraintBottom_toTopOf="@+id/buttonStartRecording"
+        android:text="Positions"
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewTrachea"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/textViewOutput" />
+
+    <TextView
+        android:id="@+id/textViewTrachea"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Trachea: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewAL"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewSpec" />
+
+    <TextView
+        android:id="@+id/textViewAL"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Anterior Left: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewAR"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewTrachea" />
+
+    <TextView
+        android:id="@+id/textViewAR"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Anterior Right: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewPL"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewAL" />
+
+    <TextView
+        android:id="@+id/textViewPL"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Posterior Left: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewPR"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewAR" />
+
+    <TextView
+        android:id="@+id/textViewPR"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Posterior Right: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewLL"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewPL" />
+
+    <TextView
+        android:id="@+id/textViewLL"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Lateral Left: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/textViewLR"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewPR" />
+
+    <TextView
+        android:id="@+id/textViewLR"
+        android:layout_width="382dp"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Lateral Right: "
+        android:gravity="center"
+        app:layout_constraintBottom_toTopOf="@+id/buttonStartRecording"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textViewLL" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
