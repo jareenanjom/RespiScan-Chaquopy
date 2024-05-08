@@ -5,11 +5,13 @@ import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
@@ -84,62 +86,23 @@ public class MainActivity extends AppCompatActivity {
         textViewSpec = findViewById(R.id.textViewSpec);
 
         ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
-
-        int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return;
-        }
-        audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, bufferSize);
-
-
-        /*try {
-            interpreter = new Interpreter(loadModelFile());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }*/
     }
-
 
 
     public void onStartRecording(View view) {
         if (permissionToRecordAccepted && !isRecording) {
-            isRecording=true;
-            audioData=null;
+            isRecording = true;
+            audioData = null;
             audioRecord.startRecording();
         }
     }
 
-    public void onStopRecording(View view) throws IOException {
-        if(isRecording){
-            isRecording=false;
-            audioRecord.stop();
-            audioData=new short[audioRecord.getBufferSizeInFrames() * audioRecord.getChannelCount()];
-            //preprocessAudio(audioData);
-            String result = preprocessAudio(audioData);
-            textViewOutput.setText("Predicted disease: " + result);
-        }
 
-
-        // Process the recorded audio and obtain the predicted value
-        //String predictedValue = processAudio();
-
-        // Use the predicted value as needed (e.g., display it in a TextView)
-        //TextView.setText("Predicted Value: " + predictedValue);
-    }
 
     private void startRecording() {
 
         //short[] audioBuffer = new short[bufferSize];
-        isRecording=true;
+        isRecording = true;
         audioRecord.startRecording();
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             // TODO: Consider calling
@@ -165,8 +128,7 @@ public class MainActivity extends AppCompatActivity {
             audioRecord = null;
         }
     }
-   // private static final int BUFFER_SIZE = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
-
+    // private static final int BUFFER_SIZE = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
 
 
     private String preprocessAudio(short[] audioData) throws IOException {
@@ -176,7 +138,7 @@ public class MainActivity extends AppCompatActivity {
         int mSampleRate = audioRecord.getSampleRate();
         int mNumFrames = read / (audioRecord.getAudioFormat() == AudioFormat.ENCODING_PCM_16BIT ? 2 : 1);
         double[][] buffer = new double[mChannels][mNumFrames];
-        String prediction= "Unknown";
+        String prediction = "Unknown";
 
 
         // Perform audio processing and feature extraction here
@@ -307,21 +269,65 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-
-
-
-
-
-
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         switch (requestCode) {
             case REQUEST_RECORD_AUDIO_PERMISSION:
-                permissionToRecordAccepted  = grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                permissionToRecordAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                if (permissionToRecordAccepted) {
+                    initializeAudioRecord();
+                } else {
+                    // Handle the case where permissions are not granted
+                    Toast.makeText(this, "Recording permission is required to use this app.", Toast.LENGTH_SHORT).show();
+                }
                 break;
         }
-        if (!permissionToRecordAccepted) finish();
+    }
+
+    private void initializeAudioRecord() {
+        int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize);
+    }
+    private class AudioProcessingTask extends AsyncTask<Void, Void, String> {
+
+        @Override
+        protected String doInBackground(Void... voids) {
+            // Perform audio processing here
+            try {
+                return preprocessAudio(audioData);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            // Update UI with the result
+            textViewOutput.setText("Predicted disease: " + result);
+        }
+    }
+
+    public void onStopRecording(View view) throws IOException {
+        if(isRecording){
+            isRecording=false;
+            audioRecord.stop();
+            audioData=new short[audioRecord.getBufferSizeInFrames() * audioRecord.getChannelCount()];
+            // Start the AsyncTask to perform audio processing in the background
+            new AudioProcessingTask().execute();
+        }
     }
 }
+
