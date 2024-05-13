@@ -7,7 +7,6 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
@@ -22,31 +21,25 @@ import java.math.RoundingMode;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Interpreter;
 
-import com.example.respidetect.audio.features.WavFile;
-
-import org.tensorflow.lite.support.audio.TensorAudio;
 import org.tensorflow.lite.support.common.FileUtil;
 import org.tensorflow.lite.support.common.TensorProcessor;
 import org.tensorflow.lite.support.common.ops.NormalizeOp;
 import org.tensorflow.lite.support.label.TensorLabel;
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
-import org.tensorflow.lite.task.audio.classifier.AudioClassifier;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
-import java.util.TimerTask;
 
 
 import com.example.respidetect.audio.features.MFCC;
@@ -68,14 +61,19 @@ public class MainActivity extends AppCompatActivity {
     private Interpreter interpreter;
     private TextView textViewOutput;
     private TextView textViewSpec;
-
-    private AudioClassifier audioClassifier;
-    private TensorAudio tensorAudio;
-
-    private TimerTask timerTask;
+    private TextView textViewTrachea;
+    private TextView textViewAL;
+    private TextView textViewAR;
+    private TextView textViewPL;
+    private TextView textViewPR;
+    private TextView textViewLL;
+    private TextView textViewLR;
 
     private short[] audioData;
     private Thread recordingThread = null;
+    private TextView[] textViews;
+    private int currentTextViewIndex = 0;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,6 +82,15 @@ public class MainActivity extends AppCompatActivity {
 
         textViewOutput = findViewById(R.id.textViewOutput);
         textViewSpec = findViewById(R.id.textViewSpec);
+        textViewTrachea = findViewById(R.id.textViewTrachea);
+        textViewAL = findViewById(R.id.textViewAL);
+        textViewAR = findViewById(R.id.textViewAR);
+        textViewPL = findViewById(R.id.textViewPL);
+        textViewPR = findViewById(R.id.textViewPR);
+        textViewLL = findViewById(R.id.textViewLL);
+        textViewLR = findViewById(R.id.textViewLR);
+        textViews = new TextView[]{textViewTrachea, textViewAL, textViewAR, textViewPL, textViewPR, textViewLL, textViewLR};
+
 
         ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
     }
@@ -91,47 +98,20 @@ public class MainActivity extends AppCompatActivity {
 
     public void onStartRecording(View view) {
         if (permissionToRecordAccepted && !isRecording) {
+            Log.d("AudioRecording", "Recording is about to start...");
+
             isRecording = true;
             audioData = null;
             audioRecord.startRecording();
+            Log.d("AudioRecording", "Recording started successfully.");
+
+
         }
     }
-
-
-
-    private void startRecording() {
-
-        //short[] audioBuffer = new short[bufferSize];
-        isRecording = true;
-        audioRecord.startRecording();
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return;
-        }
-
-
-        //audioRecord.startRecording();
-
-
-    }
-
-    private void stopRecording() {
-        if (audioRecord != null) {
-            audioRecord.stop();
-            audioRecord.release();
-            audioRecord = null;
-        }
-    }
-    // private static final int BUFFER_SIZE = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
 
 
     private String preprocessAudio(short[] audioData) throws IOException {
+        List<String> predictions = new ArrayList<>();
 
         int read = audioRecord.read(audioData, 0, audioData.length);
         int mChannels = audioRecord.getChannelCount();
@@ -139,6 +119,7 @@ public class MainActivity extends AppCompatActivity {
         int mNumFrames = read / (audioRecord.getAudioFormat() == AudioFormat.ENCODING_PCM_16BIT ? 2 : 1);
         double[][] buffer = new double[mChannels][mNumFrames];
         String prediction = "Unknown";
+        Log.d("AudioProcessing", "Starting audio preprocessing...");
 
 
         // Perform audio processing and feature extraction here
@@ -185,8 +166,10 @@ public class MainActivity extends AppCompatActivity {
         }
 
         prediction = loadModelAndMakePredictions(meanMFCCValues);
+        Log.d("AudioProcessing", "Audio preprocessing completed.");
 
         return prediction;
+
     }
 
     protected String loadModelAndMakePredictions(float[] meanMFCCValues) throws IOException {
@@ -287,47 +270,97 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initializeAudioRecord() {
-        int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return;
+            // Permission not granted, request it
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO_PERMISSION);
+            return; // Return without initializing audioRecord
         }
+
+        int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
         audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize);
     }
-    private class AudioProcessingTask extends AsyncTask<Void, Void, String> {
+
+    private class AudioProcessingTask extends AsyncTask<Void, Void, String>  {
+
+        private TextView[] textViews;
+
+        public AudioProcessingTask(TextView[] textViews) {
+            this.textViews = textViews;
+        }
 
         @Override
         protected String doInBackground(Void... voids) {
             // Perform audio processing here
             try {
-                return preprocessAudio(audioData);
+                return preprocessAudio(audioData); // Return only one prediction
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
 
-        @Override
-        protected void onPostExecute(String result) {
-            // Update UI with the result
-            textViewOutput.setText("Predicted disease: " + result);
-        }
-    }
+        private List<String> textViewNames = Arrays.asList("Trachea", "Anterior Left", "Anterior Right", "Posterior Left", "Posterior Right", "Lateral Left", "Lateral Right");
 
-    public void onStopRecording(View view) throws IOException {
-        if(isRecording){
-            isRecording=false;
-            audioRecord.stop();
-            audioData=new short[audioRecord.getBufferSizeInFrames() * audioRecord.getChannelCount()];
-            // Start the AsyncTask to perform audio processing in the background
-            new AudioProcessingTask().execute();
+        @Override
+        public void onPostExecute(String prediction) {
+            String textViewName = textViewNames.get(currentTextViewIndex);
+
+            textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
+
+            // Move to the next TextView for the next recording
+            currentTextViewIndex++;
+            if (currentTextViewIndex >= textViews.length) {
+                currentTextViewIndex = 0; // Reset index if all TextViews are updated
+            }
         }
-    }
+        }
+
+
+
+        public void onStopRecording(View view) throws IOException {
+            List<String> textViewNames = Arrays.asList("Trachea", "Anterior Left", "Anterior Right", "Posterior Left", "Posterior Right", "Lateral Left", "Lateral Right");
+            Map<String, Integer> predictionCounts = new HashMap<>();
+
+            if (isRecording) {
+                isRecording = false;
+                audioRecord.stop();
+                double recordedSeconds = audioRecord.getBufferSizeInFrames() / SAMPLE_RATE * 0.001;
+
+                audioData = new short[audioRecord.getBufferSizeInFrames() * audioRecord.getChannelCount()];
+                Log.d("Recording Duration", "Recorded " + recordedSeconds + " seconds");
+
+                // Update the current TextView with the prediction
+                String prediction = preprocessAudio(audioData);
+                String textViewName = textViewNames.get(currentTextViewIndex);
+
+                textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
+
+                // Increment prediction count
+                predictionCounts.put(prediction, predictionCounts.getOrDefault(prediction, 0) + 1);
+
+                // Move to the next TextView for the next recording
+                currentTextViewIndex++;
+                if (currentTextViewIndex >= textViews.length) {
+                    // Determine majority prediction
+                    String majorityPrediction = "";
+                    int maxCount = 0;
+                    for (Map.Entry<String, Integer> entry : predictionCounts.entrySet()) {
+                        if (entry.getValue() > maxCount) {
+                            majorityPrediction = entry.getKey();
+                            maxCount = entry.getValue();
+                        }
+                    }
+
+                    // Update the output TextView with the majority prediction
+                    textViewOutput.setText("Predicted disease: " + majorityPrediction);
+
+                    // Reset index if all TextViews are updated
+                    currentTextViewIndex = 0;
+                    predictionCounts.clear(); // Reset prediction counts
+                }
+            }
+        }
+
+
 }
 
