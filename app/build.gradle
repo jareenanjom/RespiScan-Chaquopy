@@ -1,5 +1,6 @@
 plugins {
     id 'com.android.application'
+    id "com.chaquo.python"
 }
 
 android {
@@ -8,10 +9,38 @@ android {
 
     defaultConfig {
         applicationId "com.example.respidetect"
-        minSdk 24
-        targetSdk 34
+        minSdk 27
+        targetSdk 33
         versionCode 1
         versionName "1.0"
+
+
+        ndk {
+            // On Apple silicon, you can omit x86_64.
+            abiFilters "arm64-v8a", "x86", "x86_64"
+        }
+
+
+        python {
+            version "3.8"
+            buildPython("C:/Users/zaree/anaconda3/python.exe")
+        }
+
+
+
+        sourceSets {
+            main {
+                python.srcDir "src/main/python"
+            }
+        }
+
+        python{
+            pip{
+                install "numpy"
+                install "tflite-runtime"
+                install "librosa"
+            }
+        }
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -27,28 +56,23 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
     buildFeatures {
-        viewBinding true
         mlModelBinding true
     }
 }
 
 dependencies {
 
-    implementation libs.appcompat
-    implementation libs.material
-    implementation libs.constraintlayout
-    implementation libs.navigation.fragment
-    implementation libs.navigation.ui
-    //implentation libs.tensorflow.lite
-    implementation libs.tensorflow.lite.support
-    implementation libs.tensorflow.lite.metadata
-    implementation libs.tensorflow.lite.gpu
-    testImplementation libs.junit
-    androidTestImplementation libs.ext.junit
-    androidTestImplementation libs.espresso.core
-    //implementation libs.dsp
-    implementation libs.tensorflow.lite.task.audio
-    //implementation libs.dsp
-    implementation fileTree(dir: "libs", include: ["*.jar"])
-
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'org.tensorflow:tensorflow-lite:2.15.0'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'org.tensorflow:tensorflow-lite-support:0.1.0'
+    implementation 'org.tensorflow:tensorflow-lite-metadata:0.1.0'
+    implementation 'androidx.navigation:navigation-fragment:2.7.7'
+    implementation 'androidx.navigation:navigation-ui:2.7.7'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    implementation 'com.google.mediapipe:tasks-vision:0.20230731'
 }
