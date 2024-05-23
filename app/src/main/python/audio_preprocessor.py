@@ -1,12 +1,21 @@
 import tflite_runtime.interpreter as tflite
 import numpy as np
 import librosa
+import os
+from os.path import dirname, join
 
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+filename = join(dirname(__file__), "quantized_model.tflite")
 # Define the list of classes
 classes = ["COPD", "Bronchiolitis", "Pneumonia", "URTI", "Healthy"]
 
 # Load your TFLite model
-interpreter = tflite.Interpreter(model_path="quantized_model.tflite")
+interpreter = tflite.Interpreter(model_path=filename)
+logger.debug("Initializing TFLiteClassifier")
 interpreter.allocate_tensors()
 
 # Get input and output details

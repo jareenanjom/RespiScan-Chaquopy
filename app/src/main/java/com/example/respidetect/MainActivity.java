@@ -141,7 +141,6 @@ public class MainActivity extends AppCompatActivity {
 
 
     public void onStopRecording(View view) throws IOException {
-        Map<String, Integer> predictionCounts = new HashMap<>();
         if (isRecording) {
             isRecording = false;
             audioRecord.stop();
@@ -150,59 +149,62 @@ public class MainActivity extends AppCompatActivity {
 
             double recordedSeconds = (double) numShortsRead /  SAMPLE_RATE;
             Log.d("Recording Duration", "Recorded " + recordedSeconds + " seconds");
-
-            //new AudioProcessingTask(textViews).execute();
-
-            // Update the current TextView with the prediction
-            String prediction = preprocessAudio(audioData);
-            String textViewName = textViewNames.get(currentTextViewIndex);
-
-            textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
-
-            // Increment prediction count
-            predictionCounts.put(prediction, predictionCounts.getOrDefault(prediction, 0) + 1);
-
-            // Move to the next TextView for the next recording
-            currentTextViewIndex++;
-            if (currentTextViewIndex >= textViews.length) {
-                // Determine majority prediction
-                String majorityPrediction = "";
-                int maxCount = 0;
-                for (Map.Entry<String, Integer> entry : predictionCounts.entrySet()) {
-                    if (entry.getValue() > maxCount) {
-                        majorityPrediction = entry.getKey();
-                        maxCount = entry.getValue();
-                    }
-                }
-
-                // Update the output TextView with the majority prediction
-                textViewOutput.setText("Predicted disease: " + majorityPrediction);
-
-                // Reset index if all TextViews are updated
-                currentTextViewIndex = 0;
-                predictionCounts.clear(); // Reset prediction counts
-            }
+            // Start processing in a background thread
+            new AudioProcessingTask().execute(audioData);
         }
     }
 
 
 
     private String preprocessAudio(short[] audioData) throws IOException {
-        Python py = Python.getInstance();
-        PyObject audioProcessor = py.getModule("audio_preprocessor");
+        try {
+            Python py = Python.getInstance();
+            PyObject audioProcessor = py.getModule("audio_preprocessor");
 
-        int sampleRate = SAMPLE_RATE;
-        float[] audioDataFloat = new float[audioData.length];
-        for (int i = 0; i < audioData.length; i++) {
-            audioDataFloat[i] = audioData[i];
+            int sampleRate = SAMPLE_RATE;
+            float[] audioDataFloat = new float[audioData.length];
+            for (int i = 0; i < audioData.length; i++) {
+                audioDataFloat[i] = audioData[i];
+            }
+
+            PyObject mfccs = audioProcessor.callAttr("preprocess_audio", audioDataFloat, sampleRate);
+            PyObject prediction = audioProcessor.callAttr("predict_disease", mfccs);
+
+            return prediction.toString();
+        } catch (Exception ex) {
+            Log.e("preprocessAudio", "Exception caught: " + ex.getMessage(), ex);
+            throw new IOException("Error processing audio data", ex);
         }
-
-        PyObject mfccs = audioProcessor.callAttr("preprocess_audio", audioDataFloat, sampleRate);
-        PyObject prediction = audioProcessor.callAttr("predict_disease", mfccs);
-
-        return prediction.toString();
     }
 
+
+    private void updateUIWithPrediction(String prediction) {
+        Map<String, Integer> predictionCounts = new HashMap<>();
+        String textViewName = textViewNames.get(currentTextViewIndex);
+        textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
+
+        // Increment prediction count
+        predictionCounts.put(prediction, predictionCounts.getOrDefault(prediction, 0) + 1);
+        currentTextViewIndex++;
+        if (currentTextViewIndex >= textViews.length) {
+            // Determine majority prediction and update UI...
+            String majorityPrediction = "";
+            int maxCount = 0;
+            for (Map.Entry<String, Integer> entry : predictionCounts.entrySet()) {
+                if (entry.getValue() > maxCount) {
+                    majorityPrediction = entry.getKey();
+                    maxCount = entry.getValue();
+                }
+            }
+
+            // Update the output TextView with the majority prediction
+            textViewOutput.setText("Predicted disease: " + majorityPrediction);
+
+            // Reset index if all TextViews are updated
+            currentTextViewIndex = 0;
+            predictionCounts.clear(); //
+        }
+    }
     protected String loadModelAndMakePredictions(float[] meanMFCCValues) throws IOException {
         String predictedResult = "unknown";
 
@@ -281,35 +283,23 @@ public class MainActivity extends AppCompatActivity {
         return recognitions;
     }
 
-    private class AudioProcessingTask extends AsyncTask<Void, Void, String> {
-        private TextView[] textViews;
-
-        public AudioProcessingTask(TextView[] textViews) {
-            this.textViews = textViews;
-        }
-
+    private class AudioProcessingTask extends AsyncTask<short[], Void, String> {
         @Override
-        protected String doInBackground(Void... voids) {
-            // Perform audio processing here
+        protected String doInBackground(short[]... audioData) {
             try {
-                return preprocessAudio(audioData); // Return only one prediction
+                return preprocessAudio(audioData[0]);
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                Log.e("AudioProcessingTask", "Error processing audio", e);
+                return null;
             }
         }
 
-        private List<String> textViewNames = Arrays.asList("Trachea", "Anterior Left", "Anterior Right", "Posterior Left", "Posterior Right", "Lateral Left", "Lateral Right");
-
         @Override
         protected void onPostExecute(String prediction) {
-            String textViewName = textViewNames.get(currentTextViewIndex);
-
-            textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
-
-            // Move to the next TextView for the next recording
-            currentTextViewIndex++;
-            if (currentTextViewIndex >= textViews.length) {
-                currentTextViewIndex = 0; // Reset index if all TextViews are updated
+            if (prediction != null) {
+                updateUIWithPrediction(prediction);
+            } else {
+                Toast.makeText(MainActivity.this, "Failed to process audio", Toast.LENGTH_SHORT).show();
             }
         }
     }

@@ -23,7 +23,7 @@ android {
 
         python {
             version "3.8"
-            buildPython("C:/Users/zaree/anaconda3/python.exe")
+            buildPython("C:/Users/zaree/AppData/Local/Programs/Python/Python38/python.exe")
         }
 
 
@@ -38,7 +38,9 @@ android {
             pip{
                 install "numpy"
                 install "tflite-runtime"
-                install "librosa"
+                install "librosa==0.9.2"
+                install "resampy==0.3.1"
+                install "msgpack==1.0.6"
             }
         }
 
@@ -75,4 +77,5 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     implementation 'com.google.mediapipe:tasks-vision:0.20230731'
+    //implementation "com.chaquo.python:gradle:9.1.0"
 }
