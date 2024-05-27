@@ -1,10 +1,12 @@
 package com.example.respidetect;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
@@ -23,8 +25,11 @@ import org.tensorflow.lite.support.common.FileUtil;
 import org.tensorflow.lite.support.common.ops.NormalizeOp;
 import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -73,6 +78,14 @@ public class MainActivity extends AppCompatActivity {
     private Thread recordingThread;
     private List<String> textViewNames = Arrays.asList("Trachea", "Anterior Left", "Anterior Right", "Posterior Left", "Posterior Right", "Lateral Left", "Lateral Right");
 
+    private static final int REQUEST_READ_EXTERNAL_STORAGE_PERMISSION = 201;
+    private static final int REQUEST_AUDIO_FILE = 202;
+    private boolean permissionToReadStorageAccepted = false;
+    private String[] storagePermissions = {Manifest.permission.READ_EXTERNAL_STORAGE};
+
+// Inside onCreate
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -93,6 +106,8 @@ public class MainActivity extends AppCompatActivity {
         if (! Python.isStarted()) {
             Python.start(new AndroidPlatform(this));
         }
+
+        ActivityCompat.requestPermissions(this, storagePermissions, REQUEST_READ_EXTERNAL_STORAGE_PERMISSION);
     }
 
     private int numShortsRead = 0;
@@ -305,22 +320,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         switch (requestCode) {
             case REQUEST_RECORD_AUDIO_PERMISSION:
                 permissionToRecordAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
                 if (permissionToRecordAccepted) {
-                    // Initialize audio record if permission is granted
                     initializeAudioRecord();
                 } else {
-                    // Handle the case where permissions are not granted
                     Toast.makeText(this, "Recording permission is required to use this app.", Toast.LENGTH_SHORT).show();
+                }
+                break;
+            case REQUEST_READ_EXTERNAL_STORAGE_PERMISSION:
+                permissionToReadStorageAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                if (!permissionToReadStorageAccepted) {
+                    Toast.makeText(this, "Storage permission is required to select audio files.", Toast.LENGTH_SHORT).show();
                 }
                 break;
         }
     }
+
 
     private void initializeAudioRecord() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -352,4 +371,72 @@ public class MainActivity extends AppCompatActivity {
             recordingThread.interrupt();
         }
     }
+
+    public void onSelectAudioFile(View view) {
+        if (permissionToReadStorageAccepted) {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.setType("audio/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(intent, REQUEST_AUDIO_FILE);
+        } else {
+            ActivityCompat.requestPermissions(this, storagePermissions, REQUEST_READ_EXTERNAL_STORAGE_PERMISSION);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_AUDIO_FILE && resultCode == RESULT_OK) {
+            if (data != null && data.getData() != null) {
+                Uri audioUri = data.getData();
+                new AudioFileProcessingTask().execute(audioUri);
+            }
+        }
+    }
+
+    private class AudioFileProcessingTask extends AsyncTask<Uri, Void, String> {
+        @Override
+        protected String doInBackground(Uri... uris) {
+            Uri audioUri = uris[0];
+            try {
+                // Read the audio data from the file
+                short[] audioData = readAudioFile(audioUri);
+                // Process the audio data
+                return preprocessAudio(audioData);
+            } catch (IOException e) {
+                Log.e("AudioFileProcessingTask", "Error processing audio file", e);
+                return null;
+            }
+        }
+
+        @Override
+        protected void onPostExecute(String prediction) {
+            if (prediction != null) {
+                updateUIWithPrediction(prediction);
+            } else {
+                Toast.makeText(MainActivity.this, "Failed to process audio file", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private short[] readAudioFile(Uri audioUri) throws IOException {
+        InputStream inputStream = getContentResolver().openInputStream(audioUri);
+        if (inputStream == null) {
+            throw new IOException("Unable to open input stream for audio file");
+        }
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byte[] buffer = new byte[1024];
+        int len;
+        while ((len = inputStream.read(buffer)) != -1) {
+            byteArrayOutputStream.write(buffer, 0, len);
+        }
+        byte[] audioBytes = byteArrayOutputStream.toByteArray();
+        short[] audioData = new short[audioBytes.length / 2];
+        ByteBuffer.wrap(audioBytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(audioData);
+        return audioData;
+    }
+
+
+
+
 }
