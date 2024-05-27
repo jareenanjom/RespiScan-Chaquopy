@@ -19,47 +19,40 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import org.tensorflow.lite.DataType;
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
+
 import org.tensorflow.lite.Interpreter;
-import org.tensorflow.lite.support.common.FileUtil;
-import org.tensorflow.lite.support.common.ops.NormalizeOp;
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
-import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
 
-import com.example.respidetect.audio.features.MFCC;
-import com.example.respidetect.noiseclassifier.Recognition;
-
-import org.tensorflow.lite.support.common.TensorProcessor;
-import org.tensorflow.lite.support.label.TensorLabel;
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
-import com.chaquo.python.PyObject;
-import com.chaquo.python.Python;
-import com.chaquo.python.android.AndroidPlatform;
 public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
+    private static final int REQUEST_READ_EXTERNAL_STORAGE_PERMISSION = 201;
+    private static final int REQUEST_AUDIO_FILE = 202;
     private static final String MODEL_PATH = "quantized_model.tflite";
     private static final int SAMPLE_RATE = 44100;
-    private static final int RECORDING_LENGTH = 20; // in seconds
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
 
     private boolean permissionToRecordAccepted = false;
+    private boolean permissionToReadStorageAccepted = false;
     private String[] permissions = {Manifest.permission.RECORD_AUDIO};
-    private AudioRecord audioRecord;
+    private String[] storagePermissions = {Manifest.permission.READ_EXTERNAL_STORAGE};
     private boolean isRecording = false;
+    private int bufferSize;
+    private Thread recordingThread;
+
     private Interpreter interpreter;
     private TextView textViewOutput;
     private TextView textViewSpec;
@@ -72,19 +65,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView textViewLR;
     private TextView[] textViews;
     private int currentTextViewIndex = 0;
+    private List<String> predictionsList = new ArrayList<>();
 
     private short[] audioData;
-    private int bufferSize;
-    private Thread recordingThread;
     private List<String> textViewNames = Arrays.asList("Trachea", "Anterior Left", "Anterior Right", "Posterior Left", "Posterior Right", "Lateral Left", "Lateral Right");
-
-    private static final int REQUEST_READ_EXTERNAL_STORAGE_PERMISSION = 201;
-    private static final int REQUEST_AUDIO_FILE = 202;
-    private boolean permissionToReadStorageAccepted = false;
-    private String[] storagePermissions = {Manifest.permission.READ_EXTERNAL_STORAGE};
-
-// Inside onCreate
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,73 +87,62 @@ public class MainActivity extends AppCompatActivity {
         textViews = new TextView[]{textViewTrachea, textViewAL, textViewAR, textViewPL, textViewPR, textViewLL, textViewLR};
 
         ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
-        if (! Python.isStarted()) {
+        if (!Python.isStarted()) {
             Python.start(new AndroidPlatform(this));
         }
 
         ActivityCompat.requestPermissions(this, storagePermissions, REQUEST_READ_EXTERNAL_STORAGE_PERMISSION);
     }
 
-    private int numShortsRead = 0;
     public void onStartRecording(View view) {
         if (permissionToRecordAccepted && !isRecording) {
-            Log.d("AudioRecording", "Recording is about to start...");
-
-            bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return;
-            }
-            audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize);
-
-            if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
-                Log.e("AudioRecording", "AudioRecord initialization failed!");
-                return;
-            }
-
-            audioData = new short[bufferSize];
-            audioRecord.startRecording();
-            isRecording = true;
-
-            Log.d("AudioRecording", "Recording started successfully.");
-
-            recordingThread = new Thread(() -> {
-                while (isRecording) {
-                    int read = audioRecord.read(audioData, 0, bufferSize);
-                    if (read < 0) {
-                        Log.e("AudioRecording", "Failed to read audio data!");
-                    } else {
-                        numShortsRead += read;
-                    }
-                }
-            }, "Audio Recording Thread");
-            recordingThread.start();
-            numShortsRead = 0; // Reset the count
+            startNewRecording();
         }
     }
 
-
-    public void onStopRecording(View view) throws IOException {
+    public void onStopRecording(View view) throws IOException, InterruptedException {
         if (isRecording) {
-            isRecording = false;
-            audioRecord.stop();
-
-            Log.d("AudioRecording", "Recording stopped.");
-
-            double recordedSeconds = (double) numShortsRead /  SAMPLE_RATE;
-            Log.d("Recording Duration", "Recorded " + recordedSeconds + " seconds");
-            // Start processing in a background thread
-            new AudioProcessingTask().execute(audioData);
+            stopCurrentRecording();
         }
     }
 
+    private void startNewRecording() {
+        bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        AudioRecord audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize);
+        if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+            Log.e("AudioRecording", "AudioRecord initialization failed!");
+            return;
+        }
 
+        audioData = new short[bufferSize];
+        audioRecord.startRecording();
+        isRecording = true;
+        Log.d("AudioRecording", "Recording started successfully.");
+
+        recordingThread = new Thread(() -> {
+            int read;
+            while (isRecording) {
+                read = audioRecord.read(audioData, 0, bufferSize);
+                if (read < 0) {
+                    Log.e("AudioRecording", "Failed to read audio data!");
+                }
+            }
+            audioRecord.stop();
+            audioRecord.release();
+        }, "Audio Recording Thread");
+        recordingThread.start();
+    }
+
+    private void stopCurrentRecording() throws IOException, InterruptedException {
+        isRecording = false;
+        recordingThread.join();
+
+        // Start processing in a background thread
+        new AudioProcessingTask().execute(audioData);
+    }
 
     private String preprocessAudio(short[] audioData) throws IOException {
         try {
@@ -192,110 +165,36 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
     private void updateUIWithPrediction(String prediction) {
-        Map<String, Integer> predictionCounts = new HashMap<>();
-        String textViewName = textViewNames.get(currentTextViewIndex);
-        textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
-
-        // Increment prediction count
-        predictionCounts.put(prediction, predictionCounts.getOrDefault(prediction, 0) + 1);
-        currentTextViewIndex++;
-        if (currentTextViewIndex >= textViews.length) {
-            // Determine majority prediction and update UI...
-            String majorityPrediction = "";
-            int maxCount = 0;
-            for (Map.Entry<String, Integer> entry : predictionCounts.entrySet()) {
-                if (entry.getValue() > maxCount) {
-                    majorityPrediction = entry.getKey();
-                    maxCount = entry.getValue();
-                }
+        if (currentTextViewIndex < textViews.length) {
+            String textViewName = textViewNames.get(currentTextViewIndex);
+            textViews[currentTextViewIndex].setText(textViewName + ": " + prediction);
+            predictionsList.add(prediction);
+            currentTextViewIndex++;
+            if (currentTextViewIndex == textViews.length) {
+                calculateAndDisplayMajorityVote();
             }
-
-            // Update the output TextView with the majority prediction
-            textViewOutput.setText("Predicted disease: " + majorityPrediction);
-
-            // Reset index if all TextViews are updated
+        } else {
+            Toast.makeText(this, "All TextViews have been updated.", Toast.LENGTH_SHORT).show();
             currentTextViewIndex = 0;
-            predictionCounts.clear(); //
         }
     }
-    protected String loadModelAndMakePredictions(float[] meanMFCCValues) throws IOException {
-        String predictedResult = "unknown";
 
-        // Load the TFLite model
-        MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, MODEL_PATH);
-        Interpreter tflite;
-
-        // Configure the interpreter options
-        Interpreter.Options tfliteOptions = new Interpreter.Options();
-        tfliteOptions.setNumThreads(2);
-        tflite = new Interpreter(tfliteModel, tfliteOptions);
-
-        // Obtain input and output tensor information
-        int imageTensorIndex = 0;
-        int[] imageShape = tflite.getInputTensor(imageTensorIndex).shape();
-        DataType imageDataType = tflite.getInputTensor(imageTensorIndex).dataType();
-        int probabilityTensorIndex = 0;
-        int[] probabilityShape = tflite.getOutputTensor(probabilityTensorIndex).shape();
-        DataType probabilityDataType = tflite.getOutputTensor(probabilityTensorIndex).dataType();
-
-        // Transform the MFCC buffer into the required tensor shape
-        TensorBuffer inBuffer = TensorBuffer.createDynamic(imageDataType);
-        inBuffer.loadArray(meanMFCCValues, imageShape);
-
-        // Define output tensor
-        TensorBuffer outputTensorBuffer
-                = TensorBuffer.createFixedSize(probabilityShape, probabilityDataType);
-
-        // Run the predictions
-        tflite.run(inBuffer.getBuffer(), outputTensorBuffer.getBuffer());
-
-        // Transform the probability predictions into label values
-        String ASSOCIATED_AXIS_LABELS = "labels.txt";
-        List<String> associatedAxisLabels = null;
-        try {
-            associatedAxisLabels = FileUtil.loadLabels(this, ASSOCIATED_AXIS_LABELS);
-        } catch (IOException e) {
-            Log.e("tfliteSupport", "Error reading label file", e);
+    private void calculateAndDisplayMajorityVote() {
+        Map<String, Integer> predictionCountMap = new HashMap<>();
+        for (String prediction : predictionsList) {
+            predictionCountMap.put(prediction, predictionCountMap.getOrDefault(prediction, 0) + 1);
         }
-
-        // Tensor processor for processing the probability values and sorting them
-        TensorProcessor probabilityProcessor = new TensorProcessor.Builder().add(new NormalizeOp(0.0f, 255.0f)).build();
-        if (associatedAxisLabels != null) {
-            // Map of labels and their corresponding probability
-            TensorLabel labels = new TensorLabel(associatedAxisLabels, probabilityProcessor.process(outputTensorBuffer));
-
-            // Retrieve the top K probability values
-            Map<String, Float> floatMap = labels.getMapWithFloatValue();
-
-            // Retrieve the top 1 prediction
-            List<Recognition> resultPrediction = getTopKProbability(floatMap);
-
-            // Get the predicted value
-            predictedResult = getPredictedValue(resultPrediction);
+        String majorityPrediction = null;
+        int maxCount = 0;
+        for (Map.Entry<String, Integer> entry : predictionCountMap.entrySet()) {
+            if (entry.getValue() > maxCount) {
+                maxCount = entry.getValue();
+                majorityPrediction = entry.getKey();
+            }
         }
-        return predictedResult;
-    }
-
-    private String getPredictedValue(List<Recognition> predictedList) {
-        Recognition top1PredictedValue = predictedList != null ? predictedList.get(0) : null;
-        return top1PredictedValue != null ? top1PredictedValue.getTitle() : null;
-    }
-
-    protected List<Recognition> getTopKProbability(Map<String, Float> labelProb) {
-        // Find the best classifications
-        int MAX_RESULTS = 1;
-        PriorityQueue<Recognition> pq = new PriorityQueue<>(MAX_RESULTS, (lhs, rhs) -> Float.compare(rhs.getConfidence(), lhs.getConfidence()));
-        for (Map.Entry<String, Float> entry : labelProb.entrySet()) {
-            pq.add(new Recognition(entry.getKey(), entry.getKey(), entry.getValue()));
-        }
-        List<Recognition> recognitions = new ArrayList<>();
-        int recognitionsSize = Math.min(pq.size(), MAX_RESULTS);
-        for (int i = 0; i < recognitionsSize; i++) {
-            recognitions.add(pq.poll());
-        }
-        return recognitions;
+        textViewOutput.setText("Majority Vote: " + majorityPrediction);
+        predictionsList.clear();
     }
 
     private class AudioProcessingTask extends AsyncTask<short[], Void, String> {
@@ -322,61 +221,24 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode) {
-            case REQUEST_RECORD_AUDIO_PERMISSION:
-                permissionToRecordAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-                if (permissionToRecordAccepted) {
-                    initializeAudioRecord();
-                } else {
-                    Toast.makeText(this, "Recording permission is required to use this app.", Toast.LENGTH_SHORT).show();
-                }
-                break;
-            case REQUEST_READ_EXTERNAL_STORAGE_PERMISSION:
-                permissionToReadStorageAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-                if (!permissionToReadStorageAccepted) {
-                    Toast.makeText(this, "Storage permission is required to select audio files.", Toast.LENGTH_SHORT).show();
-                }
-                break;
-        }
-    }
-
-
-    private void initializeAudioRecord() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            // Permission not granted, request it
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO_PERMISSION);
-            return; // Return without initializing audioRecord
-        }
-
-        int bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
-        audioRecord = new AudioRecord(MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize);
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (isRecording) {
-            stopRecording();
-        }
-    }
-
-    private void stopRecording() {
-        isRecording = false;
-        if (audioRecord != null) {
-            audioRecord.stop();
-            audioRecord.release();
-        }
-        if (recordingThread != null && recordingThread.isAlive()) {
-            recordingThread.interrupt();
+        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+            permissionToRecordAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (!permissionToRecordAccepted) {
+                Toast.makeText(this, "Recording permission is required to use this app.", Toast.LENGTH_SHORT).show();
+            }
+        } else if (requestCode == REQUEST_READ_EXTERNAL_STORAGE_PERMISSION) {
+            permissionToReadStorageAccepted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (!permissionToReadStorageAccepted) {
+                Toast.makeText(this, "Storage permission is required to select audio files.", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
     public void onSelectAudioFile(View view) {
         if (permissionToReadStorageAccepted) {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.setType("audio/*");
             intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("audio/*");
             startActivityForResult(intent, REQUEST_AUDIO_FILE);
         } else {
             ActivityCompat.requestPermissions(this, storagePermissions, REQUEST_READ_EXTERNAL_STORAGE_PERMISSION);
@@ -386,25 +248,31 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_AUDIO_FILE && resultCode == RESULT_OK) {
-            if (data != null && data.getData() != null) {
-                Uri audioUri = data.getData();
-                new AudioFileProcessingTask().execute(audioUri);
-            }
+        if (requestCode == REQUEST_AUDIO_FILE && resultCode == RESULT_OK && data != null) {
+            Uri audioUri = data.getData();
+            new AudioProcessingTaskForFile().execute(audioUri);
         }
     }
 
-    private class AudioFileProcessingTask extends AsyncTask<Uri, Void, String> {
+    private class AudioProcessingTaskForFile extends AsyncTask<Uri, Void, String> {
         @Override
         protected String doInBackground(Uri... uris) {
-            Uri audioUri = uris[0];
             try {
-                // Read the audio data from the file
-                short[] audioData = readAudioFile(audioUri);
-                // Process the audio data
+                InputStream inputStream = getContentResolver().openInputStream(uris[0]);
+                ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    byteArrayOutputStream.write(buffer, 0, bytesRead);
+                }
+                byte[] audioBytes = byteArrayOutputStream.toByteArray();
+                short[] audioData = new short[audioBytes.length / 2];
+                ByteBuffer.wrap(audioBytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(audioData);
+                inputStream.close();
+                byteArrayOutputStream.close();
                 return preprocessAudio(audioData);
             } catch (IOException e) {
-                Log.e("AudioFileProcessingTask", "Error processing audio file", e);
+                Log.e("AudioProcessingTaskForFile", "Error processing audio file", e);
                 return null;
             }
         }
@@ -418,25 +286,4 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
-    private short[] readAudioFile(Uri audioUri) throws IOException {
-        InputStream inputStream = getContentResolver().openInputStream(audioUri);
-        if (inputStream == null) {
-            throw new IOException("Unable to open input stream for audio file");
-        }
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = inputStream.read(buffer)) != -1) {
-            byteArrayOutputStream.write(buffer, 0, len);
-        }
-        byte[] audioBytes = byteArrayOutputStream.toByteArray();
-        short[] audioData = new short[audioBytes.length / 2];
-        ByteBuffer.wrap(audioBytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(audioData);
-        return audioData;
-    }
-
-
-
-
 }
