@@ -6,3 +6,5 @@ Detecting respiratory diseases such as COPD, bronchiolitis, URTI, and pneumonia 
 
 **Dataset** <br>
 https://bhichallenge.med.auth.gr/ICBHI_2017_Challenge
+
+**RespiScan Application** <br>
